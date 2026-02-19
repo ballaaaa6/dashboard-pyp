@@ -53,11 +53,11 @@ const App: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  // ฟังก์ชัน "เพิ่มและตรวจสอบ" (ดึงชื่อจริงจาก Shopee ผ่าน API Backend ของเรา)
+  // ฟังก์ชัน "เพิ่มและตรวจสอบ" (ดึงชื่อจริงจาก Shopee ผ่าน API Backend)
   const addAndVerifyAccount = async (cookie: string, note: string) => {
     setIsSyncing(true);
     try {
-      // 1. เรียก Serverless Function ที่เราเพิ่งสร้างขึ้นมาเพื่อดึง Username จริงจาก Shopee
+      // 1. ดึง Username จริงจาก Shopee ผ่าน API ของเรา
       const response = await fetch('/api/get-username', {
         method: 'POST',
         headers: {
@@ -68,16 +68,13 @@ const App: React.FC = () => {
 
       const result = await response.json();
       
-      let finalUsername = 'Pending Verify...';
-      let shopeeId = Date.now().toString(); // Fallback ID
+      // ดึง SPC_U จากคุกกี้เพื่อใช้เป็น ID บัญชี Shopee (สำคัญมากสำหรับการทำ Upsert)
+      const spcU = cookie.match(/SPC_U=([^;]+)/);
+      const shopeeId = spcU && spcU[1] ? spcU[1] : Date.now().toString();
 
+      let finalUsername = 'Pending Verify...';
       if (result.success && result.username) {
         finalUsername = result.username;
-        // ดึง SPC_U จากคุกกี้เพื่อใช้เป็น ID บัญชี Shopee (ถ้ามี)
-        const spcU = cookie.match(/SPC_U=([^;]+)/);
-        if (spcU && spcU[1]) {
-          shopeeId = spcU[1];
-        }
       }
 
       // 2. ทำการ Upsert ลง Supabase
@@ -100,7 +97,7 @@ const App: React.FC = () => {
       
     } catch (err: any) {
       console.error("Verification/Insert Error:", err);
-      // Fallback: ถ้า API ดึงชื่อไม่ได้ ให้เพิ่มแบบ Manual ลง Supabase (ใช้ timestamp เป็น ID)
+      // Fallback: ถ้า API มีปัญหา ให้เพิ่มแบบ Manual (ใช้ timestamp เป็น ID)
       const manualEntry = {
         id: Date.now().toString(),
         username: 'Pending Verify...',
@@ -134,7 +131,6 @@ const App: React.FC = () => {
       if (error) throw error;
       
       setAccounts(prev => prev.filter(acc => acc.id.toString() !== id.toString()));
-      localStorage.setItem('shopee_accounts_backup', JSON.stringify(accounts.filter(acc => acc.id.toString() !== id.toString())));
     } catch (err) {
       console.error("Delete Error:", err);
     } finally {
