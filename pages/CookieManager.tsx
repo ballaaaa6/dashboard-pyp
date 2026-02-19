@@ -14,7 +14,7 @@ import { ShopeeAccount } from '../types';
 
 interface CookieManagerProps {
   accounts: ShopeeAccount[];
-  onAdd: (cookie: string, note: string) => Promise<{ success: boolean }>;
+  onAdd: (cookie: string, note: string) => Promise<{ success: boolean; message?: string }>;
   onRemove: (id: string) => void;
   isSyncing: boolean;
 }
@@ -140,13 +140,10 @@ const CookieManager: React.FC<CookieManagerProps> = ({ accounts, onAdd, onRemove
                   </td>
                 </tr>
               ) : (
-                accounts.map((acc, index) => {
-                  // ถ้ามี Username จริงจาก Shopee ให้ใช้ Username นั้น
-                  // ถ้าไม่มี (Pending Verify...) ให้แสดงเป็น Shop_xx ตามลำดับ
-                  const isVerified = acc.username && acc.username !== 'Pending Verify...';
-                  const mainName = isVerified 
-                    ? acc.username 
-                    : `Shop_${String(accounts.length - index).padStart(2, '0')}`;
+                accounts.map((acc) => {
+                  // แสดงชื่อจริงที่ดึงมาจาก Shopee เท่านั้น
+                  const mainName = acc.username || 'Pending Verify...';
+                  const isVerified = mainName !== 'Pending Verify...';
                   
                   return (
                     <tr key={acc.id} className="hover:bg-blue-50/10 transition-colors group">

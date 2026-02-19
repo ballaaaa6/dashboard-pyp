@@ -68,16 +68,21 @@ const App: React.FC = () => {
 
       const result = await response.json();
       
-      // ดึง SPC_U จากคุกกี้เพื่อใช้เป็น ID บัญชี Shopee (สำคัญมากสำหรับการทำ Upsert)
+      // 2. ดึง SPC_U จากคุกกี้เพื่อใช้เป็น ID บัญชี Shopee (สำคัญมากสำหรับการทำ Upsert)
       const spcU = cookie.match(/SPC_U=([^;]+)/);
-      const shopeeId = spcU && spcU[1] ? spcU[1] : Date.now().toString();
-
-      let finalUsername = 'Pending Verify...';
-      if (result.success && result.username) {
-        finalUsername = result.username;
+      if (!spcU || !spcU[1]) {
+          throw new Error("ไม่พบ SPC_U ในคุกกี้ กรุณาตรวจสอบคุกกี้ที่ใส่เข้ามา");
       }
+      const shopeeId = spcU[1];
 
-      // 2. ทำการ Upsert ลง Supabase
+      // ถ้าดึงชื่อเล่นไม่ได้ ให้แจ้ง Error ชัดเจน (ไม่ fallback ไป Shop_xx)
+      if (!result.success || !result.username) {
+          throw new Error(result.message || "ไม่สามารถดึงชื่อเล่นจาก Shopee ได้ กรุณาลองใหม่อีกครั้ง");
+      }
+      
+      const finalUsername = result.username;
+
+      // 3. ทำการ Upsert ลง Supabase (ใช้ id เป็นตัวเช็คว่าซ้ำไหม)
       const accountData = {
         id: shopeeId,
         username: finalUsername,
@@ -97,24 +102,8 @@ const App: React.FC = () => {
       
     } catch (err: any) {
       console.error("Verification/Insert Error:", err);
-      // Fallback: ถ้า API มีปัญหา ให้เพิ่มแบบ Manual (ใช้ timestamp เป็น ID)
-      const manualEntry = {
-        id: Date.now().toString(),
-        username: 'Pending Verify...',
-        cookie: cookie,
-        note: note,
-        expiry: 'Active'
-      };
-      
-      const { error: insertError } = await supabase
-        .from('shopee_accounts')
-        .insert([manualEntry]);
-        
-      if (!insertError) {
-        await fetchData();
-        return { success: true };
-      }
-      return { success: false };
+      alert("เกิดข้อผิดพลาด: " + err.message);
+      return { success: false, message: err.message };
     } finally {
       setIsSyncing(false);
     }
