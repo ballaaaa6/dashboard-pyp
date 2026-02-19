@@ -6,26 +6,32 @@ import LiveDashboard from './pages/LiveDashboard';
 import CookieManager from './pages/CookieManager';
 import AffiliateDashboard from './pages/AffiliateDashboard';
 import { ShopeeAccount } from './types';
+import { supabase } from './supabaseClient';
 
-// ลิงก์ GAS ของคุณที่ทำหน้าที่เป็นทั้ง Database และ Proxy
-const CLOUD_URL = "https://script.google.com/macros/s/AKfycbwvSDRK2Qj8ONEAoAYKR0hD5IxLVN3KyZLLuDlgU5X71NHZZeKk7UaxPkDoY8mQNfuZSQ/exec";
+// ลิงก์ GAS เดิมที่ใช้เป็น Proxy สำหรับ Shopee API (เรายังคงไว้เพื่อ fetch ข้อมูลจาก Shopee)
+const PROXY_URL = "https://script.google.com/macros/s/AKfycbwvSDRK2Qj8ONEAoAYKR0hD5IxLVN3KyZLLuDlgU5X71NHZZeKk7UaxPkDoY8mQNfuZSQ/exec";
 
 const App: React.FC = () => {
   const [accounts, setAccounts] = useState<ShopeeAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
 
-  // ดึงข้อมูลจาก Sheet (ดึงมาทั้งหมด)
+  // ดึงข้อมูลจาก Supabase
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await fetch(CLOUD_URL);
-      const data = await response.json();
-      if (Array.isArray(data)) {
-        setAccounts(data);
+      const { data, error } = await supabase
+        .from('shopee_accounts')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      
+      if (data) {
+        setAccounts(data as ShopeeAccount[]);
       }
     } catch (err) {
-      console.error("Cloud fetch failed:", err);
+      console.error("Supabase fetch failed:", err);
       const saved = localStorage.getItem('shopee_accounts_backup');
       if (saved) setAccounts(JSON.parse(saved));
     } finally {
@@ -37,16 +43,13 @@ const App: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  // ฟังก์ชัน "เพิ่มและตรวจสอบ" (ส่งไปให้ GAS ดึงชื่อ Username จาก Shopee)
+  // ฟังก์ชัน "เพิ่มและตรวจสอบ"
   const addAndVerifyAccount = async (cookie: string, note: string) => {
     setIsSyncing(true);
     try {
-      // ส่ง POST ไปที่ GAS พร้อมระบุ action ว่าจะ 'add'
-      // หมายเหตุ: GAS ของคุณต้องรองรับการรับ JSON ที่มี cookie เพื่อไป fetch Shopee ต่อ
-      const response = await fetch(CLOUD_URL, {
+      // 1. ส่งไปให้ Proxy (GAS) เพื่อตรวจสอบ Username จาก Shopee
+      const response = await fetch(PROXY_URL, {
         method: 'POST',
-        // mode: 'no-cors' จะไม่สามารถอ่าน response ได้ 
-        // ดังนั้น GAS ต้องตั้งค่าให้ส่ง Header CORS กลับมา หรือใช้การ fetch ปกติถ้า GAS รองรับ
         body: JSON.stringify({
           action: 'add_account',
           cookie: cookie,
@@ -54,50 +57,68 @@ const App: React.FC = () => {
         })
       });
 
-      // ถ้า GAS เขียนให้ return ข้อมูลบัญชีใหม่กลับมา
       const result = await response.json();
-      if (result.success) {
-        await fetchData(); // โหลดข้อมูลใหม่ทั้งหมดหลังเพิ่มสำเร็จ
+      
+      if (result.success && result.account) {
+        // 2. ถ้า Proxy ตรวจสอบสำเร็จ ให้บันทึกลง Supabase
+        const newAccount = {
+          id: result.account.id || Date.now(),
+          username: result.account.username,
+          cookie: result.account.cookie,
+          note: result.account.note,
+          expiry: result.account.expiry || 'Active'
+        };
+
+        const { error } = await supabase
+          .from('shopee_accounts')
+          .insert([newAccount]);
+
+        if (error) throw error;
+
+        await fetchData(); // โหลดข้อมูลใหม่
         return { success: true };
       } else {
         throw new Error(result.message || "Verification failed");
       }
     } catch (err) {
-      console.error("Verification Error:", err);
-      // ถ้า API ตรวจสอบไม่ได้ ให้เพิ่มแบบ Manual ไปก่อน (กันเหนียว)
-      const manualEntry: ShopeeAccount = {
-        id: Date.now().toString(),
+      console.error("Verification/Insert Error:", err);
+      // Fallback: ถ้า API ตรวจสอบไม่ได้ ให้เพิ่มแบบ Manual ลง Supabase
+      const manualEntry = {
+        id: Date.now(),
         username: 'Pending Verify...',
         cookie: cookie,
         note: note,
         expiry: 'Active'
       };
-      const newAccounts = [...accounts, manualEntry];
-      setAccounts(newAccounts);
-      await syncAllToCloud(newAccounts);
-      return { success: true };
+      
+      const { error } = await supabase
+        .from('shopee_accounts')
+        .insert([manualEntry]);
+        
+      if (!error) {
+        await fetchData();
+        return { success: true };
+      }
+      return { success: false };
     } finally {
       setIsSyncing(false);
     }
   };
 
   const removeAccount = async (id: string) => {
-    const newAccounts = accounts.filter(acc => acc.id !== id);
-    setAccounts(newAccounts);
-    await syncAllToCloud(newAccounts);
-  };
-
-  const syncAllToCloud = async (currentAccounts: ShopeeAccount[]) => {
     setIsSyncing(true);
-    localStorage.setItem('shopee_accounts_backup', JSON.stringify(currentAccounts));
     try {
-      await fetch(CLOUD_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        body: JSON.stringify({ action: 'sync_all', data: currentAccounts })
-      });
+      const { error } = await supabase
+        .from('shopee_accounts')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      
+      setAccounts(prev => prev.filter(acc => acc.id.toString() !== id.toString()));
+      localStorage.setItem('shopee_accounts_backup', JSON.stringify(accounts.filter(acc => acc.id.toString() !== id.toString())));
     } catch (err) {
-      console.error("Sync Error:", err);
+      console.error("Delete Error:", err);
     } finally {
       setIsSyncing(false);
     }
@@ -107,7 +128,7 @@ const App: React.FC = () => {
     return (
       <div className="min-h-screen bg-[#F9FBFF] flex flex-col items-center justify-center p-6 text-center">
         <div className="w-16 h-16 border-4 border-[#5340FF] border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-[#5340FF] font-black uppercase tracking-widest text-xs italic">Connecting to Shopee Cloud Engine...</p>
+        <p className="text-[#5340FF] font-black uppercase tracking-widest text-xs italic">Connecting to Supabase Cloud...</p>
       </div>
     );
   }
