@@ -49,15 +49,18 @@ const App: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  // ฟังก์ชันดึง Username จาก Shopee โดยตรง (Client-side)
-  const fetchShopeeUsername = async (cookie: string) => {
+  // ฟังก์ชันดึง Username โดยใช้ CORS Proxy (วิธีเดียวกับที่เว็บอื่นใช้)
+  const fetchShopeeUsernameWithProxy = async (cookie: string) => {
+    const proxyUrl = 'https://cors-anywhere.herokuapp.com/'; // หรือ Proxy ตัวอื่นที่รองรับ
+    const targetUrl = 'https://creator.shopee.co.th/api/v1/login/status';
+    
     try {
-      // ใช้ Proxy เพื่อเลี่ยง CORS (เหมือนที่เว็บอื่นทำกัน)
-      // หรือเรียก API Shopee โดยตรงถ้าเบราว์เซอร์อนุญาต (บางครั้ง Shopee ยอมถ้ามีคุกกี้ถูกต้อง)
-      const response = await fetch('https://creator.shopee.co.th/api/v1/login/status', {
+      // ลองดึงผ่าน Proxy
+      const response = await fetch(proxyUrl + targetUrl, {
         headers: {
-          'Accept': 'application/json',
-          'Cookie': cookie // เบราว์เซอร์จะส่งคุกกี้นี้ไปให้ Shopee
+          'x-requested-with': 'XMLHttpRequest',
+          'Cookie': cookie,
+          'Accept': 'application/json'
         }
       });
       
@@ -68,19 +71,21 @@ const App: React.FC = () => {
         }
       }
       
-      // ถ้า API ดึงไม่ได้ ให้ลองดึงจากหน้า HTML (Fallback)
-      const htmlResponse = await fetch('https://creator.shopee.co.th/insight/live/list', {
-        headers: { 'Cookie': cookie }
+      // ถ้าติดปัญหาเรื่อง Proxy (เช่น ต้องกด Request Temporary Access)
+      // ให้ลองดึงผ่าน Backend ของเราเอง (Vercel Serverless Function) เป็นทางเลือกสุดท้าย
+      const backendResponse = await fetch('/api/get-username', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cookie })
       });
-      const html = await htmlResponse.text();
-      const nicknameMatch = html.match(/class="[^"]*_nickName_3tava_32[^"]*">([^<]+)<\/div>/);
-      if (nicknameMatch && nicknameMatch[1]) {
-        return nicknameMatch[1].trim();
+      const backendResult = await backendResponse.json();
+      if (backendResult.success && backendResult.username) {
+        return backendResult.username;
       }
       
       return null;
     } catch (e) {
-      console.error("Client-side fetch error:", e);
+      console.error("Fetch with Proxy error:", e);
       return null;
     }
   };
@@ -95,28 +100,11 @@ const App: React.FC = () => {
       }
       const shopeeId = spcU[1];
 
-      // 2. ดึงชื่อจริงจาก Shopee (ผ่านเบราว์เซอร์ผู้ใช้)
-      let finalUsername = await fetchShopeeUsername(cookie);
+      // 2. ดึงชื่อจริงจาก Shopee (ผ่าน Proxy)
+      let finalUsername = await fetchShopeeUsernameWithProxy(cookie);
       
-      // ถ้ายังดึงไม่ได้ (ติด CORS) ให้ลองใช้ Proxy Backend (ที่เราทำไว้ก่อนหน้าเป็นทางเลือกสุดท้าย)
       if (!finalUsername) {
-        try {
-          const proxyResponse = await fetch('/api/get-username', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cookie })
-          });
-          const result = await proxyResponse.json();
-          if (result.success && result.username) {
-            finalUsername = result.username;
-          }
-        } catch (e) {
-          console.error("Proxy fetch error:", e);
-        }
-      }
-
-      // ถ้าดึงไม่ได้เลยจริงๆ (คุกกี้อาจจะมีปัญหา)
-      if (!finalUsername) {
+        // ถ้าดึงไม่ได้จริงๆ ให้ใช้ ID เป็นชื่อชั่วคราวเพื่อให้ระบบทำงานต่อได้
         finalUsername = `User_${shopeeId}`;
       }
 
@@ -157,7 +145,7 @@ const App: React.FC = () => {
     }
   };
 
-  if (isLoading) return <div className="p-10 text-center">Loading...</div>;
+  if (isLoading) return <div className="p-10 text-center font-black uppercase text-[#5340FF]">Connecting...</div>;
 
   return (
     <HashRouter>
