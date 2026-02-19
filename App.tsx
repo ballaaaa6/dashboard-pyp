@@ -16,7 +16,7 @@ const App: React.FC = () => {
 
   const fetchData = useCallback(async () => {
     if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
-      setError("กรุณาตั้งค่า Environment Variables (VITE_SUPABASE_URL และ VITE_SUPABASE_ANON_KEY) ใน Vercel Dashboard");
+      setError("กรุณาตั้งค่า Environment Variables ใน Vercel Dashboard");
       setIsLoading(false);
       return;
     }
@@ -39,7 +39,7 @@ const App: React.FC = () => {
       }
     } catch (err: any) {
       console.error("Supabase fetch failed:", err);
-      setError("ไม่สามารถดึงข้อมูลจาก Supabase ได้: " + (err.message || "Unknown error"));
+      setError("ไม่สามารถดึงข้อมูลได้: " + (err.message || "Unknown error"));
     } finally {
       setIsLoading(false);
     }
@@ -49,45 +49,87 @@ const App: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
+  // ฟังก์ชันดึง Username จาก Shopee โดยตรง (Client-side)
+  const fetchShopeeUsername = async (cookie: string) => {
+    try {
+      // ใช้ Proxy เพื่อเลี่ยง CORS (เหมือนที่เว็บอื่นทำกัน)
+      // หรือเรียก API Shopee โดยตรงถ้าเบราว์เซอร์อนุญาต (บางครั้ง Shopee ยอมถ้ามีคุกกี้ถูกต้อง)
+      const response = await fetch('https://creator.shopee.co.th/api/v1/login/status', {
+        headers: {
+          'Accept': 'application/json',
+          'Cookie': cookie // เบราว์เซอร์จะส่งคุกกี้นี้ไปให้ Shopee
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data && data.data && data.data.username) {
+          return data.data.username;
+        }
+      }
+      
+      // ถ้า API ดึงไม่ได้ ให้ลองดึงจากหน้า HTML (Fallback)
+      const htmlResponse = await fetch('https://creator.shopee.co.th/insight/live/list', {
+        headers: { 'Cookie': cookie }
+      });
+      const html = await htmlResponse.text();
+      const nicknameMatch = html.match(/class="[^"]*_nickName_3tava_32[^"]*">([^<]+)<\/div>/);
+      if (nicknameMatch && nicknameMatch[1]) {
+        return nicknameMatch[1].trim();
+      }
+      
+      return null;
+    } catch (e) {
+      console.error("Client-side fetch error:", e);
+      return null;
+    }
+  };
+
   const addAndVerifyAccount = async (cookie: string, note: string) => {
     setIsSyncing(true);
     try {
-      // 1. ดึง SPC_U จากคุกกี้ก่อน (เพื่อใช้เป็น ID และ Fallback Username)
+      // 1. ดึง SPC_U จากคุกกี้ (ID หลัก)
       const spcU = cookie.match(/SPC_U=([^;]+)/);
       if (!spcU || !spcU[1]) {
-          throw new Error("ไม่พบ SPC_U ในคุกกี้ กรุณาตรวจสอบคุกกี้ที่ใส่เข้ามา");
+        throw new Error("ไม่พบ SPC_U ในคุกกี้ กรุณาตรวจสอบคุกกี้");
       }
       const shopeeId = spcU[1];
 
-      // 2. ดึง Username จริงจาก Shopee
-      let finalUsername = `User_${shopeeId}`; // ตั้งค่าเริ่มต้นเป็น ID หากดึงชื่อไม่ได้
+      // 2. ดึงชื่อจริงจาก Shopee (ผ่านเบราว์เซอร์ผู้ใช้)
+      let finalUsername = await fetchShopeeUsername(cookie);
       
-      try {
-        const response = await fetch('/api/get-username', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cookie })
-        });
-        const result = await response.json();
-        if (result.success && result.username) {
-          finalUsername = result.username;
+      // ถ้ายังดึงไม่ได้ (ติด CORS) ให้ลองใช้ Proxy Backend (ที่เราทำไว้ก่อนหน้าเป็นทางเลือกสุดท้าย)
+      if (!finalUsername) {
+        try {
+          const proxyResponse = await fetch('/api/get-username', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cookie })
+          });
+          const result = await proxyResponse.json();
+          if (result.success && result.username) {
+            finalUsername = result.username;
+          }
+        } catch (e) {
+          console.error("Proxy fetch error:", e);
         }
-      } catch (e) {
-        console.error("Backend fetch error:", e);
       }
 
-      // 3. ทำการ Upsert ลง Supabase
-      const accountData = {
-        id: shopeeId,
-        username: finalUsername,
-        cookie: cookie,
-        note: note,
-        expiry: 'Active'
-      };
+      // ถ้าดึงไม่ได้เลยจริงๆ (คุกกี้อาจจะมีปัญหา)
+      if (!finalUsername) {
+        finalUsername = `User_${shopeeId}`;
+      }
 
+      // 3. Upsert ลง Supabase
       const { error: upsertError } = await supabase
         .from('shopee_accounts')
-        .upsert(accountData, { onConflict: 'id' });
+        .upsert({
+          id: shopeeId,
+          username: finalUsername,
+          cookie: cookie,
+          note: note,
+          expiry: 'Active'
+        }, { onConflict: 'id' });
 
       if (upsertError) throw upsertError;
 
@@ -95,7 +137,6 @@ const App: React.FC = () => {
       return { success: true };
       
     } catch (err: any) {
-      console.error("Verification Error:", err);
       alert("เกิดข้อผิดพลาด: " + err.message);
       return { success: false, message: err.message };
     } finally {
@@ -106,10 +147,7 @@ const App: React.FC = () => {
   const removeAccount = async (id: string) => {
     setIsSyncing(true);
     try {
-      const { error } = await supabase
-        .from('shopee_accounts')
-        .delete()
-        .eq('id', id);
+      const { error } = await supabase.from('shopee_accounts').delete().eq('id', id);
       if (error) throw error;
       setAccounts(prev => prev.filter(acc => acc.id.toString() !== id.toString()));
     } catch (err) {
