@@ -7,7 +7,6 @@ import {
   Database,
   Wifi,
   ShieldCheck,
-  Cloud,
   Search,
   UserCheck
 } from 'lucide-react';
@@ -141,47 +140,54 @@ const CookieManager: React.FC<CookieManagerProps> = ({ accounts, onAdd, onRemove
                   </td>
                 </tr>
               ) : (
-                accounts.map((acc) => (
-                  <tr key={acc.id} className="hover:bg-blue-50/10 transition-colors group">
-                    <td className="px-12 py-10">
-                      <div className="flex items-center gap-8">
-                        <div className="w-16 h-16 rounded-[22px] bg-[#F3F5FF] border border-blue-50 flex items-center justify-center text-[#5340FF] font-black text-xl shadow-sm relative">
-                           {(acc.username || 'U').charAt(0).toUpperCase()}
-                           <div className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full"></div>
-                        </div>
-                        <div>
-                          <p className="font-black text-[#1E293B] text-xl uppercase tracking-tight">
-                            {acc.username || 'Loading...'} <span className="text-[#5340FF] opacity-70">({acc.note})</span>
-                          </p>
-                          <div className="flex items-center gap-4 mt-1.5">
-                            <span className="text-[11px] text-[#5340FF] font-black uppercase tracking-wider bg-blue-50 px-3 py-1 rounded-lg border border-blue-100">
-                               ID: {acc.id}
-                            </span>
-                            <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest flex items-center gap-1">
-                               <Wifi size={10} className="text-emerald-400" /> {acc.expiry}
-                            </span>
+                accounts.map((acc, index) => {
+                  // สร้างชื่อหลักเป็น Shop_xx ตามลำดับ หรือใช้ Username จริงถ้ามีข้อมูลแล้ว
+                  const mainName = acc.username && acc.username !== 'Pending Verify...' 
+                    ? acc.username 
+                    : `Shop_${String(accounts.length - index).padStart(2, '0')}`;
+                  
+                  return (
+                    <tr key={acc.id} className="hover:bg-blue-50/10 transition-colors group">
+                      <td className="px-12 py-10">
+                        <div className="flex items-center gap-8">
+                          <div className="w-16 h-16 rounded-[22px] bg-[#F3F5FF] border border-blue-50 flex items-center justify-center text-[#5340FF] font-black text-xl shadow-sm relative">
+                             {mainName.charAt(0).toUpperCase()}
+                             <div className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full"></div>
+                          </div>
+                          <div>
+                            <p className="font-black text-[#1E293B] text-xl uppercase tracking-tight">
+                              {mainName} <span className="text-[#5340FF] opacity-70 font-bold">({acc.note})</span>
+                            </p>
+                            <div className="flex items-center gap-4 mt-1.5">
+                              <span className="text-[11px] text-[#5340FF] font-black uppercase tracking-wider bg-blue-50 px-3 py-1 rounded-lg border border-blue-100">
+                                 ID: {acc.id}
+                              </span>
+                              <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest flex items-center gap-1">
+                                 <Wifi size={10} className="text-emerald-400" /> {acc.expiry}
+                              </span>
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    </td>
-                    <td className="px-12 py-10 text-right">
-                       <div className="flex items-center justify-end gap-3">
-                          <button 
-                            onClick={() => window.location.reload()}
-                            className="p-4 bg-gray-50 text-gray-400 rounded-2xl hover:bg-gray-100 transition-all opacity-0 group-hover:opacity-100"
-                          >
-                             <RefreshCw size={18} />
-                          </button>
-                          <button 
-                            onClick={() => onRemove(acc.id)}
-                            className="p-5 bg-red-50 text-red-400 rounded-[22px] hover:bg-red-500 hover:text-white transition-all shadow-sm hover:shadow-red-200"
-                          >
-                            <Trash2 size={20} />
-                          </button>
-                       </div>
-                    </td>
-                  </tr>
-                ))
+                      </td>
+                      <td className="px-12 py-10 text-right">
+                         <div className="flex items-center justify-end gap-3">
+                            <button 
+                              onClick={() => window.location.reload()}
+                              className="p-4 bg-gray-50 text-gray-400 rounded-2xl hover:bg-gray-100 transition-all opacity-0 group-hover:opacity-100"
+                            >
+                               <RefreshCw size={18} />
+                            </button>
+                            <button 
+                              onClick={() => onRemove(acc.id)}
+                              className="p-5 bg-red-50 text-red-400 rounded-[22px] hover:bg-red-500 hover:text-white transition-all shadow-sm hover:shadow-red-200"
+                            >
+                              <Trash2 size={20} />
+                            </button>
+                         </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
