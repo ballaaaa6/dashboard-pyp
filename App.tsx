@@ -8,9 +8,6 @@ import AffiliateDashboard from './pages/AffiliateDashboard';
 import { ShopeeAccount } from './types';
 import { supabase } from './supabaseClient';
 
-// ลิงก์ GAS เดิมที่ใช้เป็น Proxy สำหรับ Shopee API (เรายังคงไว้เพื่อ fetch ข้อมูลจาก Shopee)
-const PROXY_URL = "https://script.google.com/macros/s/AKfycbwvSDRK2Qj8ONEAoAYKR0hD5IxLVN3KyZLLuDlgU5X71NHZZeKk7UaxPkDoY8mQNfuZSQ/exec";
-
 const App: React.FC = () => {
   const [accounts, setAccounts] = useState<ShopeeAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -19,7 +16,6 @@ const App: React.FC = () => {
 
   // ดึงข้อมูลจาก Supabase
   const fetchData = useCallback(async () => {
-    // ตรวจสอบว่า Supabase พร้อมทำงานหรือไม่
     if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
       console.error("Missing Supabase configuration");
       setError("กรุณาตั้งค่า Environment Variables (VITE_SUPABASE_URL และ VITE_SUPABASE_ANON_KEY) ใน Vercel Dashboard");
@@ -37,7 +33,6 @@ const App: React.FC = () => {
       if (supabaseError) throw supabaseError;
       
       if (data) {
-        // แปลง id เป็น string เพื่อให้ตรงกับ interface ShopeeAccount
         const formattedData = data.map(item => ({
           ...item,
           id: item.id.toString()
@@ -58,61 +53,67 @@ const App: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  // ฟังก์ชัน "เพิ่มและตรวจสอบ" (รองรับ Upsert)
+  // ฟังก์ชัน "เพิ่มและตรวจสอบ" (ดึงชื่อจริงจาก Shopee ผ่าน API Backend ของเรา)
   const addAndVerifyAccount = async (cookie: string, note: string) => {
     setIsSyncing(true);
     try {
-      // 1. ส่งไปให้ Proxy (GAS) เพื่อตรวจสอบ Username จาก Shopee
-      const response = await fetch(PROXY_URL, {
+      // 1. เรียก Serverless Function ที่เราเพิ่งสร้างขึ้นมาเพื่อดึง Username จริงจาก Shopee
+      const response = await fetch('/api/get-username', {
         method: 'POST',
-        body: JSON.stringify({
-          action: 'add_account',
-          cookie: cookie,
-          note: note
-        })
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ cookie })
       });
 
       const result = await response.json();
       
-      if (result.success && result.account) {
-        // 2. ถ้า Proxy ตรวจสอบสำเร็จ ให้ใช้ ID เดิมจาก Shopee เพื่อทำการ Upsert
-        const accountId = result.account.id || Date.now();
-        const newAccount = {
-          id: accountId,
-          username: result.account.username,
-          cookie: result.account.cookie,
-          note: note, // ใช้ Note ล่าสุดที่ผู้ใช้พิมพ์มา
-          expiry: result.account.expiry || 'Active'
-        };
+      let finalUsername = 'Pending Verify...';
+      let shopeeId = Date.now().toString(); // Fallback ID
 
-        // ใช้ upsert เพื่ออัปเดตถ้ามี ID เดิมอยู่แล้ว
-        const { error } = await supabase
-          .from('shopee_accounts')
-          .upsert(newAccount, { onConflict: 'id' });
-
-        if (error) throw error;
-
-        await fetchData(); // โหลดข้อมูลใหม่
-        return { success: true };
-      } else {
-        throw new Error(result.message || "Verification failed");
+      if (result.success && result.username) {
+        finalUsername = result.username;
+        // ดึง SPC_U จากคุกกี้เพื่อใช้เป็น ID บัญชี Shopee (ถ้ามี)
+        const spcU = cookie.match(/SPC_U=([^;]+)/);
+        if (spcU && spcU[1]) {
+          shopeeId = spcU[1];
+        }
       }
+
+      // 2. ทำการ Upsert ลง Supabase
+      const accountData = {
+        id: shopeeId,
+        username: finalUsername,
+        cookie: cookie,
+        note: note,
+        expiry: 'Active'
+      };
+
+      const { error: upsertError } = await supabase
+        .from('shopee_accounts')
+        .upsert(accountData, { onConflict: 'id' });
+
+      if (upsertError) throw upsertError;
+
+      await fetchData(); // โหลดข้อมูลใหม่
+      return { success: true };
+      
     } catch (err: any) {
       console.error("Verification/Insert Error:", err);
-      // Fallback: ถ้า API ตรวจสอบไม่ได้ ให้เพิ่มแบบ Manual ลง Supabase (ใช้ timestamp เป็น ID)
+      // Fallback: ถ้า API ดึงชื่อไม่ได้ ให้เพิ่มแบบ Manual ลง Supabase (ใช้ timestamp เป็น ID)
       const manualEntry = {
-        id: Date.now(),
+        id: Date.now().toString(),
         username: 'Pending Verify...',
         cookie: cookie,
         note: note,
         expiry: 'Active'
       };
       
-      const { error } = await supabase
+      const { error: insertError } = await supabase
         .from('shopee_accounts')
         .insert([manualEntry]);
         
-      if (!error) {
+      if (!insertError) {
         await fetchData();
         return { success: true };
       }

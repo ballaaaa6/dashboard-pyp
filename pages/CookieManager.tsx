@@ -141,8 +141,10 @@ const CookieManager: React.FC<CookieManagerProps> = ({ accounts, onAdd, onRemove
                 </tr>
               ) : (
                 accounts.map((acc, index) => {
-                  // สร้างชื่อหลักเป็น Shop_xx ตามลำดับ หรือใช้ Username จริงถ้ามีข้อมูลแล้ว
-                  const mainName = acc.username && acc.username !== 'Pending Verify...' 
+                  // ถ้ามี Username จริงจาก Shopee ให้ใช้ Username นั้น
+                  // ถ้าไม่มี (Pending Verify...) ให้แสดงเป็น Shop_xx ตามลำดับ
+                  const isVerified = acc.username && acc.username !== 'Pending Verify...';
+                  const mainName = isVerified 
                     ? acc.username 
                     : `Shop_${String(accounts.length - index).padStart(2, '0')}`;
                   
@@ -150,9 +152,9 @@ const CookieManager: React.FC<CookieManagerProps> = ({ accounts, onAdd, onRemove
                     <tr key={acc.id} className="hover:bg-blue-50/10 transition-colors group">
                       <td className="px-12 py-10">
                         <div className="flex items-center gap-8">
-                          <div className="w-16 h-16 rounded-[22px] bg-[#F3F5FF] border border-blue-50 flex items-center justify-center text-[#5340FF] font-black text-xl shadow-sm relative">
+                          <div className={`w-16 h-16 rounded-[22px] border flex items-center justify-center font-black text-xl shadow-sm relative ${isVerified ? 'bg-emerald-50 border-emerald-100 text-emerald-600' : 'bg-[#F3F5FF] border-blue-50 text-[#5340FF]'}`}>
                              {mainName.charAt(0).toUpperCase()}
-                             <div className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full"></div>
+                             <div className={`absolute -top-1 -right-1 w-4 h-4 border-2 border-white rounded-full ${isVerified ? 'bg-emerald-500' : 'bg-amber-400'}`}></div>
                           </div>
                           <div>
                             <p className="font-black text-[#1E293B] text-xl uppercase tracking-tight">
@@ -163,7 +165,7 @@ const CookieManager: React.FC<CookieManagerProps> = ({ accounts, onAdd, onRemove
                                  ID: {acc.id}
                               </span>
                               <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest flex items-center gap-1">
-                                 <Wifi size={10} className="text-emerald-400" /> {acc.expiry}
+                                 <Wifi size={10} className={isVerified ? 'text-emerald-400' : 'text-amber-400'} /> {acc.expiry}
                               </span>
                             </div>
                           </div>
