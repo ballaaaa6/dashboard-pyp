@@ -14,10 +14,8 @@ const App: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // ดึงข้อมูลจาก Supabase
   const fetchData = useCallback(async () => {
     if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
-      console.error("Missing Supabase configuration");
       setError("กรุณาตั้งค่า Environment Variables (VITE_SUPABASE_URL และ VITE_SUPABASE_ANON_KEY) ใน Vercel Dashboard");
       setIsLoading(false);
       return;
@@ -41,8 +39,6 @@ const App: React.FC = () => {
       }
     } catch (err: any) {
       console.error("Supabase fetch failed:", err);
-      const saved = localStorage.getItem('shopee_accounts_backup');
-      if (saved) setAccounts(JSON.parse(saved));
       setError("ไม่สามารถดึงข้อมูลจาก Supabase ได้: " + (err.message || "Unknown error"));
     } finally {
       setIsLoading(false);
@@ -53,36 +49,34 @@ const App: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  // ฟังก์ชัน "เพิ่มและตรวจสอบ" (ดึงชื่อจริงจาก Shopee ผ่าน API Backend)
   const addAndVerifyAccount = async (cookie: string, note: string) => {
     setIsSyncing(true);
     try {
-      // 1. ดึง Username จริงจาก Shopee ผ่าน API ของเรา
-      const response = await fetch('/api/get-username', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ cookie })
-      });
-
-      const result = await response.json();
-      
-      // 2. ดึง SPC_U จากคุกกี้เพื่อใช้เป็น ID บัญชี Shopee (สำคัญมากสำหรับการทำ Upsert)
+      // 1. ดึง SPC_U จากคุกกี้ก่อน (เพื่อใช้เป็น ID และ Fallback Username)
       const spcU = cookie.match(/SPC_U=([^;]+)/);
       if (!spcU || !spcU[1]) {
           throw new Error("ไม่พบ SPC_U ในคุกกี้ กรุณาตรวจสอบคุกกี้ที่ใส่เข้ามา");
       }
       const shopeeId = spcU[1];
 
-      // ถ้าดึงชื่อเล่นไม่ได้ ให้แจ้ง Error ชัดเจน (ไม่ fallback ไป Shop_xx)
-      if (!result.success || !result.username) {
-          throw new Error(result.message || "ไม่สามารถดึงชื่อเล่นจาก Shopee ได้ กรุณาลองใหม่อีกครั้ง");
-      }
+      // 2. ดึง Username จริงจาก Shopee
+      let finalUsername = `User_${shopeeId}`; // ตั้งค่าเริ่มต้นเป็น ID หากดึงชื่อไม่ได้
       
-      const finalUsername = result.username;
+      try {
+        const response = await fetch('/api/get-username', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cookie })
+        });
+        const result = await response.json();
+        if (result.success && result.username) {
+          finalUsername = result.username;
+        }
+      } catch (e) {
+        console.error("Backend fetch error:", e);
+      }
 
-      // 3. ทำการ Upsert ลง Supabase (ใช้ id เป็นตัวเช็คว่าซ้ำไหม)
+      // 3. ทำการ Upsert ลง Supabase
       const accountData = {
         id: shopeeId,
         username: finalUsername,
@@ -97,11 +91,11 @@ const App: React.FC = () => {
 
       if (upsertError) throw upsertError;
 
-      await fetchData(); // โหลดข้อมูลใหม่
+      await fetchData();
       return { success: true };
       
     } catch (err: any) {
-      console.error("Verification/Insert Error:", err);
+      console.error("Verification Error:", err);
       alert("เกิดข้อผิดพลาด: " + err.message);
       return { success: false, message: err.message };
     } finally {
@@ -116,9 +110,7 @@ const App: React.FC = () => {
         .from('shopee_accounts')
         .delete()
         .eq('id', id);
-
       if (error) throw error;
-      
       setAccounts(prev => prev.filter(acc => acc.id.toString() !== id.toString()));
     } catch (err) {
       console.error("Delete Error:", err);
@@ -127,31 +119,7 @@ const App: React.FC = () => {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-[#F9FBFF] flex flex-col items-center justify-center p-6 text-center">
-        <div className="w-16 h-16 border-4 border-[#5340FF] border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-[#5340FF] font-black uppercase tracking-widest text-xs italic">Connecting to Supabase Cloud...</p>
-      </div>
-    );
-  }
-
-  if (error && accounts.length === 0) {
-    return (
-      <div className="min-h-screen bg-[#F9FBFF] flex flex-col items-center justify-center p-6 text-center">
-        <div className="bg-red-50 p-8 rounded-[30px] border border-red-100 max-w-md">
-          <h2 className="text-red-500 font-black text-xl mb-4 uppercase">Configuration Error</h2>
-          <p className="text-gray-600 text-sm mb-6">{error}</p>
-          <button 
-            onClick={() => window.location.reload()}
-            className="px-8 py-3 bg-red-500 text-white rounded-full font-bold uppercase text-xs hover:bg-red-600 transition-all"
-          >
-            Retry Connection
-          </button>
-        </div>
-      </div>
-    );
-  }
+  if (isLoading) return <div className="p-10 text-center">Loading...</div>;
 
   return (
     <HashRouter>
