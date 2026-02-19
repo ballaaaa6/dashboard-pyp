@@ -58,7 +58,7 @@ const App: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  // ฟังก์ชัน "เพิ่มและตรวจสอบ"
+  // ฟังก์ชัน "เพิ่มและตรวจสอบ" (รองรับ Upsert)
   const addAndVerifyAccount = async (cookie: string, note: string) => {
     setIsSyncing(true);
     try {
@@ -75,18 +75,20 @@ const App: React.FC = () => {
       const result = await response.json();
       
       if (result.success && result.account) {
-        // 2. ถ้า Proxy ตรวจสอบสำเร็จ ให้บันทึกลง Supabase
+        // 2. ถ้า Proxy ตรวจสอบสำเร็จ ให้ใช้ ID เดิมจาก Shopee เพื่อทำการ Upsert
+        const accountId = result.account.id || Date.now();
         const newAccount = {
-          id: result.account.id || Date.now(),
+          id: accountId,
           username: result.account.username,
           cookie: result.account.cookie,
-          note: result.account.note,
+          note: note, // ใช้ Note ล่าสุดที่ผู้ใช้พิมพ์มา
           expiry: result.account.expiry || 'Active'
         };
 
+        // ใช้ upsert เพื่ออัปเดตถ้ามี ID เดิมอยู่แล้ว
         const { error } = await supabase
           .from('shopee_accounts')
-          .insert([newAccount]);
+          .upsert(newAccount, { onConflict: 'id' });
 
         if (error) throw error;
 
@@ -97,7 +99,7 @@ const App: React.FC = () => {
       }
     } catch (err: any) {
       console.error("Verification/Insert Error:", err);
-      // Fallback: ถ้า API ตรวจสอบไม่ได้ ให้เพิ่มแบบ Manual ลง Supabase
+      // Fallback: ถ้า API ตรวจสอบไม่ได้ ให้เพิ่มแบบ Manual ลง Supabase (ใช้ timestamp เป็น ID)
       const manualEntry = {
         id: Date.now(),
         username: 'Pending Verify...',

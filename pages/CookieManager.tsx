@@ -56,7 +56,7 @@ const CookieManager: React.FC<CookieManagerProps> = ({ accounts, onAdd, onRemove
               <div>
                  <h2 className="text-3xl font-black uppercase tracking-tight italic">Profile Autopilot</h2>
                  <p className="text-gray-400 text-[11px] font-black uppercase tracking-[0.3em] flex items-center gap-2">
-                   <div className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-blue-400 animate-ping' : 'bg-emerald-400'}`}></div>
+                   <span className={`w-2 h-2 rounded-full ${isSyncing ? 'bg-blue-400 animate-ping' : 'bg-emerald-400'}`}></span>
                    {isSyncing ? 'กำลังติดต่อ Shopee API...' : 'ระบบพร้อมตรวจสอบคุกกี้อัตโนมัติ'}
                  </p>
               </div>
@@ -146,14 +146,16 @@ const CookieManager: React.FC<CookieManagerProps> = ({ accounts, onAdd, onRemove
                     <td className="px-12 py-10">
                       <div className="flex items-center gap-8">
                         <div className="w-16 h-16 rounded-[22px] bg-[#F3F5FF] border border-blue-50 flex items-center justify-center text-[#5340FF] font-black text-xl shadow-sm relative">
-                           {acc.note.charAt(0).toUpperCase()}
+                           {(acc.username || 'U').charAt(0).toUpperCase()}
                            <div className="absolute -top-1 -right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full"></div>
                         </div>
                         <div>
-                          <p className="font-black text-[#1E293B] text-xl uppercase tracking-tight">{acc.note}</p>
+                          <p className="font-black text-[#1E293B] text-xl uppercase tracking-tight">
+                            {acc.username || 'Loading...'} <span className="text-[#5340FF] opacity-70">({acc.note})</span>
+                          </p>
                           <div className="flex items-center gap-4 mt-1.5">
                             <span className="text-[11px] text-[#5340FF] font-black uppercase tracking-wider bg-blue-50 px-3 py-1 rounded-lg border border-blue-100">
-                               @{acc.username || 'Loading...'}
+                               ID: {acc.id}
                             </span>
                             <span className="text-[10px] text-gray-400 font-bold uppercase tracking-widest flex items-center gap-1">
                                <Wifi size={10} className="text-emerald-400" /> {acc.expiry}
@@ -164,7 +166,10 @@ const CookieManager: React.FC<CookieManagerProps> = ({ accounts, onAdd, onRemove
                     </td>
                     <td className="px-12 py-10 text-right">
                        <div className="flex items-center justify-end gap-3">
-                          <button className="p-4 bg-gray-50 text-gray-400 rounded-2xl hover:bg-gray-100 transition-all opacity-0 group-hover:opacity-100">
+                          <button 
+                            onClick={() => window.location.reload()}
+                            className="p-4 bg-gray-50 text-gray-400 rounded-2xl hover:bg-gray-100 transition-all opacity-0 group-hover:opacity-100"
+                          >
                              <RefreshCw size={18} />
                           </button>
                           <button 
