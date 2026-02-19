@@ -15,25 +15,40 @@ const App: React.FC = () => {
   const [accounts, setAccounts] = useState<ShopeeAccount[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   // ดึงข้อมูลจาก Supabase
   const fetchData = useCallback(async () => {
+    // ตรวจสอบว่า Supabase พร้อมทำงานหรือไม่
+    if (!import.meta.env.VITE_SUPABASE_URL || !import.meta.env.VITE_SUPABASE_ANON_KEY) {
+      console.error("Missing Supabase configuration");
+      setError("กรุณาตั้งค่า Environment Variables (VITE_SUPABASE_URL และ VITE_SUPABASE_ANON_KEY) ใน Vercel Dashboard");
+      setIsLoading(false);
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const { data, error } = await supabase
+      const { data, error: supabaseError } = await supabase
         .from('shopee_accounts')
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
+      if (supabaseError) throw supabaseError;
       
       if (data) {
-        setAccounts(data as ShopeeAccount[]);
+        // แปลง id เป็น string เพื่อให้ตรงกับ interface ShopeeAccount
+        const formattedData = data.map(item => ({
+          ...item,
+          id: item.id.toString()
+        }));
+        setAccounts(formattedData as ShopeeAccount[]);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Supabase fetch failed:", err);
       const saved = localStorage.getItem('shopee_accounts_backup');
       if (saved) setAccounts(JSON.parse(saved));
+      setError("ไม่สามารถดึงข้อมูลจาก Supabase ได้: " + (err.message || "Unknown error"));
     } finally {
       setIsLoading(false);
     }
@@ -80,7 +95,7 @@ const App: React.FC = () => {
       } else {
         throw new Error(result.message || "Verification failed");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Verification/Insert Error:", err);
       // Fallback: ถ้า API ตรวจสอบไม่ได้ ให้เพิ่มแบบ Manual ลง Supabase
       const manualEntry = {
@@ -129,6 +144,23 @@ const App: React.FC = () => {
       <div className="min-h-screen bg-[#F9FBFF] flex flex-col items-center justify-center p-6 text-center">
         <div className="w-16 h-16 border-4 border-[#5340FF] border-t-transparent rounded-full animate-spin mb-4"></div>
         <p className="text-[#5340FF] font-black uppercase tracking-widest text-xs italic">Connecting to Supabase Cloud...</p>
+      </div>
+    );
+  }
+
+  if (error && accounts.length === 0) {
+    return (
+      <div className="min-h-screen bg-[#F9FBFF] flex flex-col items-center justify-center p-6 text-center">
+        <div className="bg-red-50 p-8 rounded-[30px] border border-red-100 max-w-md">
+          <h2 className="text-red-500 font-black text-xl mb-4 uppercase">Configuration Error</h2>
+          <p className="text-gray-600 text-sm mb-6">{error}</p>
+          <button 
+            onClick={() => window.location.reload()}
+            className="px-8 py-3 bg-red-500 text-white rounded-full font-bold uppercase text-xs hover:bg-red-600 transition-all"
+          >
+            Retry Connection
+          </button>
+        </div>
       </div>
     );
   }
